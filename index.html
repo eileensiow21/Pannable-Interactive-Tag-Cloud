@@ -1,0 +1,826 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Popular AI Hastags — Desktop + Mobile Pan</title>
+
+<style>
+  :root{
+    --bg:#e7e3d8;
+
+    /* Label tones (far -> near) */
+    --ink-far: rgba(23,23,23,0.38);
+    --ink-mid: rgba(23,23,23,0.60);
+    --ink-near: rgba(23,23,23,0.88);
+
+    /* Shopify spring bezier */
+    --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* General timing */
+    --ease-out: ease-out;
+    --dur-200: 200ms;
+    --dur-spring: 400ms;
+
+    /* Popup */
+    --popup-bg: rgba(18,18,18,0.92);
+    --popup-border: rgba(255,255,255,0.08);
+    --popup-shadow: 0 18px 45px rgba(0,0,0,0.35);
+  }
+
+  *{ box-sizing:border-box; }
+  html, body{ height:100%; }
+  body{
+    margin:0;
+    background:var(--bg);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+  .wrap{
+    max-width:1550px;
+    margin:0 auto;
+    padding:44px 24px 0;
+  }
+
+  .eyebrow{
+    font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    font-size:16px;
+    font-weight:650;
+    margin:0 0 12px;
+    letter-spacing:-0.01em;
+    color: rgba(0,0,0,0.85);
+  }
+
+  .headline{
+    font-family: ui-serif,Georgia,Times,serif;
+    font-size: clamp(30px, 3.8vw, 24px);
+    line-height:1.08;
+    letter-spacing:-0.02em;
+    font-weight:500;
+    margin:0 0 18px;
+    max-width:1100px;
+    color: rgba(0,0,0,0.85);
+  }
+
+  /* VIEWPORT (what you see) */
+  .stage{
+    position:relative;
+    height:760px;
+    margin-top:24px;
+    overflow:hidden;
+    border-top:1px solid rgba(0,0,0,0.06);
+
+    /* important for touch dragging */
+    touch-action: pan-y;
+  }
+
+  /* WORLD (bigger scene that can pan) */
+  .world{
+    position:absolute;
+    left:0; top:0;
+    width:1550px;      /* design-space width */
+    height:760px;      /* design-space height */
+
+    transform-origin: 0 0;
+    transform: translate3d(var(--pan-x, 0px), var(--pan-y, 0px), 0) scale(var(--world-scale, 1));
+    will-change: transform;
+  }
+
+  /* Desktop: center the world in the stage by default */
+  @media (min-width: 901px){
+    .world{
+      left:50%;
+      transform-origin: 0 0;
+      /* pan-x handled by JS; default puts the world centered */
+    }
+  }
+
+  .labels{
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+  }
+
+  /* Label button */
+  .skill{
+    pointer-events:auto;
+    position:absolute;
+    display:inline-flex;
+    border:0;
+    padding:0;
+    background:transparent;
+    cursor:pointer;
+    user-select:none;
+
+    /* runtime vars (set by JS) */
+    --dx: 0px;
+    --dy: 0px;
+    --scale: 1;
+    --opacity: 1;
+    --fontScale: 1;
+
+    opacity: var(--opacity);
+
+    transform: translate(var(--dx), var(--dy)) translate(-50%,-50%) scale(var(--scale));
+    transition: transform var(--dur-spring) var(--spring), opacity var(--dur-200) var(--ease-out);
+    will-change: transform, opacity;
+  }
+
+  /* Inner tag: subtle hover bg only */
+  .tag{
+    display:inline-flex;
+    align-items:center;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background-color: rgba(0,0,0,0);
+
+    transition-property: background-color, min-width;
+    transition-duration: var(--dur-200);
+    transition-timing-function: var(--ease-out);
+
+    min-width: 0;
+  }
+
+  .skill__text{
+    font-family: ui-serif, Georgia, Times, serif;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    white-space: nowrap;
+
+    font-size: calc(var(--base-size) * var(--fontScale));
+    color: var(--ink-far);
+
+    transition: color var(--dur-200) var(--ease-out);
+    will-change: font-size, color;
+  }
+
+  /* Desktop hover background only */
+  @media (hover:hover) and (pointer:fine){
+    .skill:hover,
+    .skill:focus-visible{ z-index: 10; }
+
+    .skill:hover .tag,
+    .skill:focus-visible .tag{
+      background-color: rgba(0,0,0,0.03);
+      min-width: calc(100% + 10px);
+    }
+  }
+
+  .skill:focus-visible{
+    outline: 2px solid rgba(0,0,0,0.18);
+    outline-offset: 6px;
+    border-radius: 12px;
+  }
+
+  /* Popup modal */
+  .popup{
+    position:fixed;
+    z-index:9999;
+    width:420px;
+    max-width: calc(100vw - 24px);
+    padding:16px;
+
+    background: var(--popup-bg);
+    border: 1px solid var(--popup-border);
+    border-radius: 10px;
+    box-shadow: var(--popup-shadow);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(10px);
+
+    transition:
+      opacity 160ms var(--ease-out),
+      transform 160ms var(--ease-out),
+      visibility 0s linear 160ms;
+
+    pointer-events: none;
+    will-change: transform, opacity, top, left;
+  }
+
+  .popup.is-open{
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    pointer-events: auto;
+    transition:
+      opacity 160ms var(--ease-out),
+      transform 160ms var(--ease-out);
+  }
+
+  .popup__top{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:10px;
+  }
+
+  .popup__title{
+    font-family: ui-serif,Georgia,Times,serif;
+    font-size: 44px;
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    font-weight: 500;
+    color: #fff;
+  }
+
+  .popup__desc{
+    font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    color: rgba(255,255,255,0.88);
+    margin-bottom: 12px;
+  }
+
+  .popup__cta{
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+
+  .popup__dot{
+    width:18px;
+    height:18px;
+    border-radius:999px;
+    background:#6b4cff;
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,0.12);
+    flex: 0 0 auto;
+  }
+
+  .popup__link{
+    font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    font-size: 14px;
+    font-weight: 800;
+    color: rgba(255,255,255,0.92);
+    text-decoration: none;
+  }
+  .popup__link:hover{ text-decoration: underline; }
+  .popup__link:focus-visible{
+    outline:2px solid rgba(255,255,255,0.35);
+    outline-offset:3px;
+    border-radius:6px;
+  }
+
+  /* Mobile tuning */
+  @media (max-width: 900px){
+    .wrap{ padding: 28px 16px 0; }
+    .stage{ height: 520px; }
+    .popup{ width: 360px; }
+    .popup__title{ font-size: 34px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .skill, .tag, .skill__text, .popup{ transition: none !important; }
+  }
+</style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="eyebrow">Pannable Interactive Tag Cloud</div>
+    <h1 class="headline">
+      This section is best described as an interactive tag cloud presented on a pannable canvas for mobile and a fixed desktop canvas for large screens. It uses proximity-based micro-interactions labels subtly scale and change colour as the cursor moves near them, and reveals information through a hover-activated modal card (often called a hover-card, tooltip modal, or interaction card). Unlike traditional grid or carousel sections, it functions as a spatial exploration interface, where content is positioned like a map and interacted with dynamically rather than consumed linearly.
+    </h1>
+
+    <div class="stage" id="stage">
+      <div class="world" id="world">
+        <div class="labels" id="labels">
+
+          <!-- Labels (positions are design-space %, sizes via --base-size) -->
+          <button class="skill" style="left:50.5%;top:9.2%;--base-size:26px;"
+            data-title="#aiillustration" data-desc="Highlights illustrations produced using AI tools for digital or conceptual design."
+            data-cta="Click to learn more" data-link="#seo-optimization">
+            <span class="tag"><span class="skill__text">#aiillustration</span></span>
+          </button>
+
+          <button class="skill" style="left:23.5%;top:18.2%;--base-size:18px;"
+            data-title="#aiimages" data-desc="Dedicated to AI-generated image outputs across styles and use cases."
+            data-cta="Click to learn more" data-link="#editions">
+            <span class="tag"><span class="skill__text">#aiimages</span></span>
+          </button>
+
+          <button class="skill" style="left:33.8%;top:29.5%;--base-size:36px;"
+            data-title="#creativeai" data-desc="Focuses on AI tools used for creative ideation, art direction and design exploration."
+            data-cta="Click to learn more" data-link="#retention-check">
+            <span class="tag"><span class="skill__text">#creativeai</span></span>
+          </button>
+
+          <button class="skill" style="left:6.7%;top:37.8%;--base-size:18px;"
+            data-title="#aigenerated" data-desc="Broad tag labeling any content created by AI, especially visuals."
+            data-cta="Click to learn more" data-link="#promo-setup">
+            <span class="tag"><span class="skill__text">#aigenerated</span></span>
+          </button>
+
+          <button class="skill" style="left:21.2%;top:49.8%;--base-size:18px;"
+            data-title="#machinelearning" data-desc="Covers the technical foundation behind AI models that learn from data."
+            data-cta="Click to learn more" data-link="#brand-image">
+            <span class="tag"><span class="skill__text">#machinelearning</span></span>
+          </button>
+
+          <button class="skill" style="left:50.3%;top:43.6%;--base-size:60px;"
+            data-title="#ai-design" data-desc="General tag for all things artificial intelligence, including AI-powered creative tools and automation."
+            data-cta="Click to learn more" data-link="#email-campaign">
+            <span class="tag"><span class="skill__text">#ai-design</span></span>
+          </button>
+
+          <button class="skill" style="left:31.2%;top:62.0%;--base-size:36px;"
+            data-title="#aiartgenerated" data-desc="Indicates visuals that were fully produced by AI image generation systems."
+            data-cta="Click to learn more" data-link="#product-deep-dive">
+            <span class="tag"><span class="skill__text">#aiartgenerated</span></span>
+          </button>
+
+          <button class="skill" style="left:67.3%;top:27.2%;--base-size:36px;"
+            data-title="#aiartists" data-desc="Plural community tag for AI-driven creators sharing generative visual work."
+            data-cta="Click to learn more" data-link="#win-back">
+            <span class="tag"><span class="skill__text">#aiartists</span></span>
+          </button>
+
+          <button class="skill" style="left:80.8%;top:23.4%;--base-size:18px;"
+            data-title="#dalle" data-desc="Refers to images generated using OpenAI’s DALL-E image creation tool."
+            data-cta="Click to learn more" data-link="#monthly-snapshot">
+            <span class="tag"><span class="skill__text">#dalle</span></span>
+          </button>
+
+          <button class="skill" style="left:86.8%;top:38.6%;--base-size:18px;"
+            data-title="#stablediffusion" data-desc="Highlights artwork created using the open-source Stable Diffusion model."
+            data-cta="Click to learn more" data-link="#inventory-check">
+            <span class="tag"><span class="skill__text">#stablediffusion</span></span>
+          </button>
+
+          <button class="skill" style="left:69.8%;top:50.8%;--base-size:18px;"
+            data-title="#midjourney" data-desc="Specifically features visuals generated using the MidJourney AI platform."
+            data-cta="Click to learn more" data-link="#marketing-mix">
+            <span class="tag"><span class="skill__text">#midjourney</span></span>
+          </button>
+
+          <button class="skill" style="left:61.2%;top:68.4%;--base-size:26px;"
+            data-title="#digitalart" data-desc="General tag for art made digitally, often used alongside AI creative posts."
+            data-cta="Click to learn more" data-link="#checkout-drops">
+            <span class="tag"><span class="skill__text">#digitalart</span></span>
+          </button>
+
+          <button class="skill" style="left:82.2%;top:62.6%;--base-size:18px;"
+            data-title="#aidesign" data-desc="Dedicated to design work created or enhanced using AI creative software."
+            data-cta="Click to learn more" data-link="#bundle-finder">
+            <span class="tag"><span class="skill__text">#aidesign</span></span>
+          </button>
+
+          <button class="skill" style="left:89.0%;top:74.8%;--base-size:18px;"
+            data-title="#generativeart" data-desc="Covers algorithmic or AI-driven art made using generative systems or code."
+            data-cta="Click to learn more" data-link="#social-posts">
+            <span class="tag"><span class="skill__text">#generativeart</span></span>
+          </button>
+
+          <button class="skill" style="left:87.2%;top:85.2%;--base-size:18px;"
+            data-title="#aiartwork" data-desc="Highlights finished visual pieces created through AI tools."
+            data-cta="Click to learn more" data-link="#go-global">
+            <span class="tag"><span class="skill__text">#aiartwork</span></span>
+          </button>
+
+          <button class="skill" style="left:19.2%;top:73.8%;--base-size:18px;"
+            data-title="#aiartcommunity" data-desc="Connects posts to a global community sharing AI-generated art and feedback."
+            data-cta="Click to learn more" data-link="#discount-strategy">
+            <span class="tag"><span class="skill__text">#aiartcommunity</span></span>
+          </button>
+
+          <button class="skill" style="left:32.5%;top:80.6%;--base-size:52px;"
+            data-title="#aiartist" data-desc="Identifies creators who use AI as part of their artistic or design workflow."
+            data-cta="Click to learn more" data-link="#build-collections">
+            <span class="tag"><span class="skill__text">#aiartist</span></span>
+          </button>
+
+          <button class="skill" style="left:6.6%;top:84.2%;--base-size:18px;"
+            data-title="#generativeai" data-desc="Focuses on AI systems that generate new content like images, text, audio or video."
+            data-cta="Click to learn more" data-link="#return-patterns">
+            <span class="tag"><span class="skill__text">#generativeai</span></span>
+          </button>
+
+          <button class="skill" style="left:55.2%;top:85.0%;--base-size:26px;"
+            data-title="#aiart" data-desc="Showcases artwork created using AI image generators or neural creative models."
+            data-cta="Click to learn more" data-link="#gift-guide">
+            <span class="tag"><span class="skill__text">#aiart</span></span>
+          </button>
+
+          <button class="skill" style="left:49.6%;top:97.0%;--base-size:26px;"
+            data-title="#artificialintelligence" data-desc="Broader, formal tag covering AI technology, innovation and real-world applications."
+            data-cta="Click to learn more" data-link="#new-buyer">
+            <span class="tag"><span class="skill__text">#artificialintelligence</span></span>
+          </button>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hover/Tap modal -->
+  <div class="popup" id="popup" aria-hidden="true">
+    <div class="popup__top">
+      <div class="popup__title" id="popupTitle"></div>
+    </div>
+    <div class="popup__desc" id="popupDesc"></div>
+    <div class="popup__cta">
+      <span class="popup__dot" aria-hidden="true"></span>
+      <a class="popup__link" id="popupLink" href="#" target="_blank" rel="noopener noreferrer">Try it with Sidekick</a>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const stage = document.getElementById("stage");
+  const world = document.getElementById("world");
+  const labels = Array.from(document.querySelectorAll(".skill"));
+
+  const popup = document.getElementById("popup");
+  const popupTitle = document.getElementById("popupTitle");
+  const popupDesc  = document.getElementById("popupDesc");
+  const popupLink  = document.getElementById("popupLink");
+
+  // Interaction tuning
+  const HOVER_INTENT_DELAY_MS = 110;
+  const HIDE_DELAY_MS = 140;
+
+  // Desktop proximity field tuning
+  const FAR_RADIUS  = 520;
+  const NEAR_RADIUS = 180;
+  const MAX_FONT_SCALE  = 1.08;
+  const MAX_LABEL_SCALE = 1.03;
+  const MAX_PARALLAX_PX = 3;
+
+  // Mobile pan tuning
+  const PAN_FRICTION = 0.92;     // inertia decay
+  const PAN_STOP_EPS = 0.08;
+
+  let activeTarget = null;
+  let openTimer = null;
+  let hideTimer = null;
+  let raf = null;
+
+  let mouse = { x: 0, y: 0, insideStage: false };
+
+  // Pan state
+  let panX = 0;
+  let panY = 0;
+  let scale = 1;
+  let minPanX = 0;
+  let maxPanX = 0; // usually 0
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartPanX = 0;
+  let lastMoveX = 0;
+  let velX = 0;
+  let movedDuringDrag = false;
+
+  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+  function proximity(dist){
+    if (dist <= NEAR_RADIUS) return 1;
+    if (dist >= FAR_RADIUS) return 0;
+    const t = 1 - (dist - NEAR_RADIUS) / (FAR_RADIUS - NEAR_RADIUS);
+    return t * t * (3 - 2 * t); // smoothstep
+  }
+
+  function cancelClose(){ clearTimeout(hideTimer); hideTimer = null; }
+  function scheduleClose(){
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      activeTarget = null;
+      popup.classList.remove("is-open");
+      popup.setAttribute("aria-hidden","true");
+    }, HIDE_DELAY_MS);
+  }
+  function cancelOpen(){ clearTimeout(openTimer); openTimer = null; }
+
+  function setPopupContent(target){
+    popupTitle.textContent = target.dataset.title || "";
+    popupDesc.textContent  = target.dataset.desc  || "";
+    popupLink.textContent  = (target.dataset.cta || "Try it with Sidekick").trim();
+    popupLink.href         = (target.dataset.link || "#").trim();
+  }
+
+  function isMobileMode(){
+    return window.matchMedia("(max-width: 900px)").matches ||
+           window.matchMedia("(hover: none)").matches ||
+           window.matchMedia("(pointer: coarse)").matches;
+  }
+
+  function applyWorldTransform(){
+    world.style.setProperty("--pan-x", panX.toFixed(2) + "px");
+    world.style.setProperty("--pan-y", panY.toFixed(2) + "px");
+    world.style.setProperty("--world-scale", scale.toFixed(4));
+  }
+
+  function computeScaleAndBounds(){
+    const sr = stage.getBoundingClientRect();
+
+    // Scale world to fit stage height on mobile, keep 1 on desktop
+    if (isMobileMode()){
+      scale = sr.height / 760; // world height is 760
+      // Keep within sensible range
+      scale = clamp(scale, 0.45, 0.90);
+    } else {
+      scale = 1;
+    }
+
+    const worldW = 1550 * scale;
+    const stageW = sr.width;
+
+    // Horizontal bounds: allow dragging if world wider than stage
+    if (worldW > stageW){
+      minPanX = stageW - worldW; // negative
+      maxPanX = 0;
+    } else {
+      // no need to pan
+      minPanX = 0;
+      maxPanX = 0;
+    }
+
+    // Desktop: center world in stage (world is positioned at 50% left)
+    if (!isMobileMode()){
+      // world left = 50% of stage in CSS; panX should shift to center it
+      // When scale=1, world width=1550; we want center of world aligned to stage center.
+      // Because left is 50%, initial translation should be -worldW/2.
+      panX = - (1550 * scale) / 2;
+      minPanX = panX; // lock
+      maxPanX = panX; // lock
+      velX = 0;
+    } else {
+      // Mobile: start roughly centered but clamped
+      if (panX === 0 && minPanX < 0){
+        panX = clamp((stageW - worldW) / 2, minPanX, maxPanX);
+      } else {
+        panX = clamp(panX, minPanX, maxPanX);
+      }
+    }
+
+    panY = 0;
+    applyWorldTransform();
+  }
+
+  function positionPopup(target){
+    const margin = 12;
+    const r = target.getBoundingClientRect();
+
+    // measure popup
+    popup.style.left = "0px";
+    popup.style.top  = "0px";
+    const pr = popup.getBoundingClientRect();
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    const centerX = r.left + r.width/2;
+    const centerY = r.top + r.height/2;
+
+    const openLeft = centerX > vw * 0.62;
+    const openDown = centerY < vh * 0.45;
+
+    let x = openLeft ? (r.left - pr.width + 10) : (r.right - 10);
+    let y = openDown ? (r.bottom + 12) : (r.top - pr.height - 12);
+
+    // tiny cursor bias (desktop only)
+    if (!isMobileMode()){
+      const dx = clamp((mouse.x - centerX) / 40, -2, 2);
+      const dy = clamp((mouse.y - centerY) / 40, -2, 2);
+      x += dx; y += dy;
+    }
+
+    x = clamp(x, margin, vw - pr.width - margin);
+    y = clamp(y, margin, vh - pr.height - margin);
+
+    popup.style.left = x + "px";
+    popup.style.top  = y + "px";
+  }
+
+  function openPopup(target){
+    activeTarget = target;
+    setPopupContent(target);
+    popup.classList.add("is-open");
+    popup.setAttribute("aria-hidden","false");
+    positionPopup(target);
+  }
+
+  // Keep modal clickable (desktop + mobile)
+  popup.addEventListener("mouseenter", () => { cancelOpen(); cancelClose(); });
+  popup.addEventListener("mouseleave", () => { scheduleClose(); });
+
+  // Proximity micro-interactions (desktop only)
+  function tick(){
+    raf = null;
+    if (!mouse.insideStage || isMobileMode()) return;
+
+    for (const el of labels){
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width/2;
+      const cy = r.top + r.height/2;
+      const d  = Math.hypot(mouse.x - cx, mouse.y - cy);
+
+      const p = proximity(d);
+
+      const vx = clamp((mouse.x - cx) / 60, -1, 1);
+      const vy = clamp((mouse.y - cy) / 60, -1, 1);
+      const dx = vx * MAX_PARALLAX_PX * p;
+      const dy = vy * MAX_PARALLAX_PX * p;
+
+      const scaleLocal = 1 + (MAX_LABEL_SCALE - 1) * p;
+      const fontScale = 1 + (MAX_FONT_SCALE - 1) * p;
+      const opacity = 0.78 + 0.22 * p;
+
+      el.style.setProperty("--dx", dx.toFixed(2) + "px");
+      el.style.setProperty("--dy", dy.toFixed(2) + "px");
+      el.style.setProperty("--scale", scaleLocal.toFixed(3));
+      el.style.setProperty("--fontScale", fontScale.toFixed(3));
+      el.style.setProperty("--opacity", opacity.toFixed(3));
+
+      const text = el.querySelector(".skill__text");
+      if (p > 0.72) text.style.color = "var(--ink-near)";
+      else if (p > 0.25) text.style.color = "var(--ink-mid)";
+      else text.style.color = "var(--ink-far)";
+    }
+
+    if (activeTarget && popup.classList.contains("is-open")){
+      positionPopup(activeTarget);
+    }
+  }
+
+  function requestTick(){
+    if (raf) return;
+    raf = requestAnimationFrame(tick);
+  }
+
+  // Desktop mouse tracking for proximity + popup positioning
+  stage.addEventListener("mousemove", (e) => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.insideStage = true;
+    requestTick();
+  }, { passive:true });
+
+  stage.addEventListener("mouseenter", () => { mouse.insideStage = true; });
+  stage.addEventListener("mouseleave", () => {
+    mouse.insideStage = false;
+
+    // reset label effects (desktop)
+    labels.forEach(el => {
+      el.style.setProperty("--dx","0px");
+      el.style.setProperty("--dy","0px");
+      el.style.setProperty("--scale","1");
+      el.style.setProperty("--fontScale","1");
+      el.style.setProperty("--opacity","1");
+      const text = el.querySelector(".skill__text");
+      if (text) text.style.color = "var(--ink-far)";
+    });
+
+    scheduleClose();
+  });
+
+  // Hover/tap behaviour for popup
+  labels.forEach((btn) => {
+    // Desktop hover intent
+    btn.addEventListener("mouseenter", () => {
+      if (isMobileMode()) return;
+      cancelClose();
+      cancelOpen();
+      openTimer = setTimeout(() => openPopup(btn), HOVER_INTENT_DELAY_MS);
+    });
+
+    btn.addEventListener("mouseleave", () => {
+      if (isMobileMode()) return;
+      cancelOpen();
+      scheduleClose();
+    });
+
+    // Tap/click opens popup (mobile + desktop)
+    btn.addEventListener("click", (e) => {
+      // if user dragged, do not treat as tap
+      if (movedDuringDrag) { e.preventDefault(); return; }
+      e.preventDefault();
+      cancelClose();
+      cancelOpen();
+      openPopup(btn);
+    });
+
+    // Keyboard
+    btn.addEventListener("focus", () => {
+      cancelClose();
+      cancelOpen();
+      openPopup(btn);
+    });
+    btn.addEventListener("blur", () => { scheduleClose(); });
+  });
+
+  // Mobile pan: pointer drag on stage (not on labels)
+  stage.addEventListener("pointerdown", (e) => {
+    if (!isMobileMode()) return;
+
+    // If pressing on popup, don't start pan
+    if (popup.contains(e.target)) return;
+
+    isDragging = true;
+    movedDuringDrag = false;
+    dragStartX = e.clientX;
+    dragStartPanX = panX;
+    lastMoveX = e.clientX;
+    velX = 0;
+
+    stage.setPointerCapture(e.pointerId);
+  });
+
+  stage.addEventListener("pointermove", (e) => {
+    if (!isMobileMode()) return;
+    if (!isDragging) return;
+
+    const dx = e.clientX - dragStartX;
+    const next = clamp(dragStartPanX + dx, minPanX, maxPanX);
+
+    // velocity estimate
+    const frameDx = e.clientX - lastMoveX;
+    lastMoveX = e.clientX;
+    velX = 0.8 * velX + 0.2 * frameDx;
+
+    if (Math.abs(dx) > 6) movedDuringDrag = true;
+
+    panX = next;
+    applyWorldTransform();
+
+    // While dragging, close popup (matches Shopify feel)
+    if (popup.classList.contains("is-open")){
+      popup.classList.remove("is-open");
+      popup.setAttribute("aria-hidden","true");
+      activeTarget = null;
+    }
+  });
+
+  function endDrag(e){
+    if (!isMobileMode()) return;
+    if (!isDragging) return;
+    isDragging = false;
+
+    // Momentum
+    const startVel = velX;
+    if (Math.abs(startVel) < 0.5) return;
+
+    let momentumRaf = null;
+    const step = () => {
+      velX *= PAN_FRICTION;
+      if (Math.abs(velX) < PAN_STOP_EPS){
+        velX = 0;
+        cancelAnimationFrame(momentumRaf);
+        return;
+      }
+      panX = clamp(panX + velX, minPanX, maxPanX);
+      applyWorldTransform();
+      momentumRaf = requestAnimationFrame(step);
+    };
+    momentumRaf = requestAnimationFrame(step);
+  }
+
+  stage.addEventListener("pointerup", endDrag);
+  stage.addEventListener("pointercancel", endDrag);
+
+  // Close popup on tapping empty space (mobile)
+  document.addEventListener("click", (e) => {
+    if (!popup.classList.contains("is-open")) return;
+    if (popup.contains(e.target)) return;
+    const isLabel = e.target.closest(".skill");
+    if (isLabel) return;
+    popup.classList.remove("is-open");
+    popup.setAttribute("aria-hidden","true");
+    activeTarget = null;
+  });
+
+  // Recompute scale/bounds on load + resize
+  computeScaleAndBounds();
+  window.addEventListener("resize", () => {
+    computeScaleAndBounds();
+    if (activeTarget && popup.classList.contains("is-open")) positionPopup(activeTarget);
+  }, { passive:true });
+
+  window.addEventListener("scroll", () => {
+    if (activeTarget && popup.classList.contains("is-open")) positionPopup(activeTarget);
+  }, { passive:true });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape"){
+      cancelOpen();
+      cancelClose();
+      activeTarget = null;
+      popup.classList.remove("is-open");
+      popup.setAttribute("aria-hidden","true");
+    }
+  });
+})();
+</script>
+
+<p style="text-align:center; font-size:14px; margin-top:24px; color:rgba(23,23,23,0.6);">
+  Built &amp; Designed by Eileen Siow
+</p>
+<div style="height:60px;"></div>
+
+
+</body>
+</html>
