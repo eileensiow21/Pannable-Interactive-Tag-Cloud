@@ -1,3 +1,30 @@
 README.md
-# Built with Interactive Tag Cloud Micro-Interactions
-Static prototype for an explorable canvas UI section.
+# Pannable Interactive Tag Cloud — Shopify Editions Section Prototype
+
+This is a static web prototype.
+It features a **spatially mapped interactive tag cloud**, including:
+
+- Proximity-based micro-interactions (scale, opacity, font colour fade)
+- Hover-activated modal interaction cards on desktop
+- Tap-activated modals and pannable left-right canvas on mobile
+- Fully clickable CTA links inside modal popups
+- Desktop-first responsive layout
+
+## Tech Used
+- HTML
+- CSS (no external dependencies)
+- Vanilla JavaScript for interactions
+- Hosted on Vercel
+
+## Deployment
+1. Upload `index.html` to the repository root
+2. Import this repository into Vercel
+3. Select **Other / Static** as framework
+4. Deploy
+
+## Credits
+Built & Designed by **Eileen Siow**
+
+---
+
+This repository is a prototype and contains no backend or build step.
